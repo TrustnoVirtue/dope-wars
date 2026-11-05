@@ -16,5 +16,6 @@ Remove-Item Env:\GIT_INDEX_FILE
 Remove-Item Env:\GIT_DIR
 Pop-Location
 
-git push origin "${commit}:refs/heads/gh-pages"
+git push --force origin "${commit}:refs/heads/gh-pages"
+if ($LASTEXITCODE -ne 0) { throw 'Deploy push failed' }
 Write-Output 'Deployed: https://trustnovirtue.github.io/dope-wars/'
