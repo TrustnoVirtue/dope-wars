@@ -36,6 +36,11 @@ export function QuickTravel({
   const renderChip = (location: Location, locked: boolean) => {
     const active = location.id === game.location
     const days = travelDays(game, location.id)
+    const sameDay =
+      !inCity &&
+      location.kind === 'borough' &&
+      Boolean(car) &&
+      game.boroughHopsLeft > 0
     return (
       <button
         key={location.id}
@@ -63,7 +68,14 @@ export function QuickTravel({
         {locked ? <LockIcon size={10} /> : null}
         {location.name}
         {!active && !locked ? (
-          <span className="font-normal text-[var(--dim)]">{days}d</span>
+          <span
+            className={cn(
+              'font-normal',
+              sameDay ? 'text-[var(--good)]' : 'text-[var(--dim)]',
+            )}
+          >
+            {sameDay ? 'same-day' : `${days}d`}
+          </span>
         ) : null}
       </button>
     )
@@ -74,6 +86,11 @@ export function QuickTravel({
       <span className="flex shrink-0 items-center gap-1 text-[9px] font-semibold uppercase tracking-[0.12em] text-[var(--dim)]">
         <MapPinIcon size={12} />
         Travel
+        {car ? (
+          <span className="normal-case tracking-normal text-[var(--good)]">
+            {game.boroughHopsLeft}/{car.boroughHops} hops
+          </span>
+        ) : null}
       </span>
       <div className="no-scrollbar flex flex-1 gap-1.5 overflow-x-auto">
         {BOROUGHS.map((location) => renderChip(location, false))}

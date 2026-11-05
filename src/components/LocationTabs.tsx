@@ -71,13 +71,19 @@ export function LocationTabs({
         <div className="flex items-center justify-between gap-2">
           <p className="eyebrow">Boroughs</p>
           <p className="text-[10px] text-[var(--dim)]">
-            {inCity ? 'Driving back takes road time' : 'One day per hop'}
+            {inCity
+              ? 'Driving back takes road time'
+              : car
+                ? `${game.boroughHopsLeft} same-day hop${game.boroughHopsLeft === 1 ? '' : 's'} left`
+                : 'One day per hop'}
           </p>
         </div>
         <div className="no-scrollbar mt-2 flex gap-2 overflow-x-auto sm:grid sm:grid-cols-3 sm:overflow-visible lg:grid-cols-4">
           {BOROUGHS.map((location) => {
             const active = location.id === game.location
             const days = inCity ? travelDays(game, location.id) : 1
+            const sameDay =
+              !inCity && Boolean(car) && game.boroughHopsLeft > 0
             return (
               <TravelChip
                 key={location.id}
@@ -85,13 +91,15 @@ export function LocationTabs({
                 active={active}
                 disabled={disabled}
                 locked={false}
-                meta={`${days}d`}
+                meta={sameDay ? 'same-day' : `${days}d`}
                 subtitle={
                   active
                     ? location.knownFor
-                    : inCity
-                      ? driveLabel(days)
-                      : 'Travel · 1 day'
+                    : sameDay
+                      ? 'Cut across town — no day lost'
+                      : inCity
+                        ? driveLabel(days)
+                        : 'Travel · 1 day'
                 }
                 onClick={() => (inCity ? onDrive(location.id) : onTravel(location.id))}
               />

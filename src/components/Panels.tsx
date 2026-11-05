@@ -353,7 +353,7 @@ export function GarageCard({
               {current
                 ? `Road time x${current.timeFactor.toFixed(2)}${
                     current.capacity ? ` · ${quantity(current.capacity)} load` : ''
-                  }`
+                  } · ${current.boroughHops} same-day hop${current.boroughHops === 1 ? '' : 's'}/day`
                 : 'City markets stay locked until you buy a car.'}
             </p>
           </div>
@@ -382,6 +382,7 @@ export function GarageCard({
                   <p className="mt-0.5 text-[10px] text-[var(--dim)]">
                     Road time x{car.timeFactor.toFixed(2)}
                     {car.capacity ? ` · ${quantity(car.capacity)} load` : ''}
+                    {` · ${car.boroughHops} hop${car.boroughHops === 1 ? '' : 's'}/day`}
                   </p>
                 </div>
                 {owned ? (

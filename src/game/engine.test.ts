@@ -6,6 +6,7 @@ import {
   ENDLESS_DEBT_LIMIT,
   GOODS,
   LOCATIONS,
+  RUNNER_WAGE,
 } from './data'
 import { createGame, reduce, SAVE_VERSION, tickGame } from './engine'
 import { deserializeGame, serializeGame } from './save'
@@ -1221,6 +1222,148 @@ describe('bulk stash', () => {
   })
 })
 
+describe('car borough hops', () => {
+  it('grants same-day hops with a car before days start costing again', () => {
+    const state = createGame('normal', 71)
+    state.cash = 10000
+    const bought = reduce(state, { type: 'buyCar', car: 'coupe' })
+    expect(bought.boroughHopsLeft).toBe(2)
+
+    const first = reduce(bought, { type: 'travel', location: 'harlem' })
+    expect(first.day).toBe(bought.day)
+    expect(first.location).toBe('harlem')
+    expect(first.boroughHopsLeft).toBe(1)
+
+    const second = reduce(first, { type: 'travel', location: 'queens' })
+    expect(second.day).toBe(first.day)
+    expect(second.boroughHopsLeft).toBe(0)
+
+    const third = reduce(second, { type: 'travel', location: 'brooklyn' })
+    expect(third.day).toBe(second.day + 1)
+    expect(third.boroughHopsLeft).toBe(2)
+  })
+
+  it('leaves travel on foot costing a day', () => {
+    const state = createGame('normal', 72)
+    const walked = reduce(state, { type: 'travel', location: 'harlem' })
+    expect(walked.day).toBe(2)
+  })
+})
+
+describe('warehouse runner', () => {
+  it('consolidates carried goods and local stashes each day', () => {
+    const state = createGame('normal', 81)
+    state.cash = 30000
+    let next = reduce(state, { type: 'buyProperty', propertyType: 'warehouse' })
+    next = reduce(next, { type: 'buyProperty', propertyType: 'stash' })
+    next = reduce(next, { type: 'hireRunner', propertyId: 'bronx:warehouse' })
+    const warehouse = next.properties.find((p) => p.type === 'warehouse')!
+    const stash = next.properties.find((p) => p.id === 'bronx:stash')!
+    expect(warehouse.runner).toBe(true)
+
+    next.inventory.ludes = 3
+    next.basis.ludes = 30
+    stash.stored.weed = 2
+    stash.storedBasis.weed = 200
+
+    const ran = reduce(next, { type: 'layLow' })
+    const filled = ran.properties.find((p) => p.type === 'warehouse')!
+    const emptied = ran.properties.find((p) => p.id === 'bronx:stash')!
+    expect(ran.inventory.ludes).toBe(0)
+    expect(emptied.stored.weed).toBe(0)
+    expect(filled.stored.ludes).toBe(3)
+    expect(filled.storedBasis.ludes).toBe(30)
+    expect(filled.stored.weed).toBe(2)
+    expect(filled.storedBasis.weed).toBe(200)
+    expect(ran.stats.wagesPaid).toBe(RUNNER_WAGE)
+  })
+
+  it('quits when the wage cannot be paid', () => {
+    const state = createGame('normal', 82)
+    state.cash = 10000
+    let next = reduce(state, { type: 'buyProperty', propertyType: 'warehouse' })
+    next = reduce(next, { type: 'hireRunner', propertyId: 'bronx:warehouse' })
+    next.cash = 0
+    next.bank = 0
+    const broke = reduce(next, { type: 'layLow' })
+    expect(broke.properties[0]!.runner).toBe(false)
+  })
+})
+
+function advance(state: GameState, days: number): GameState {
+  let next = state
+  for (let index = 0; index < days; index += 1) {
+    if (next.pendingEvent) {
+      const option = next.pendingEvent.options.find((item) => !item.disabled)
+      if (option) {
+        next = reduce(next, { type: 'resolveEvent', option: option.id })
+      }
+    }
+    next = reduce(next, { type: 'layLow' })
+  }
+  return next
+}
+
+function cookedLab(seed: number): GameState {
+  const state = createGame('normal', seed)
+  state.cash = 50000
+  let next = reduce(state, { type: 'buyProperty', propertyType: 'lab' })
+  const lab = next.properties.find((p) => p.type === 'lab')!
+  lab.stored.speed = 5
+  lab.storedBasis.speed = 500
+  next = reduce(next, { type: 'cook', propertyId: lab.id, recipe: 'meth' })
+  return advance(next, 3)
+}
+
+describe('lab cooking', () => {
+  it('consumes ingredients, adds heat, and resolves batches', () => {
+    const state = createGame('normal', 91)
+    state.cash = 50000
+    let next = reduce(state, { type: 'buyProperty', propertyType: 'lab' })
+    const lab = next.properties.find((p) => p.type === 'lab')!
+    lab.stored.speed = 5
+    lab.storedBasis.speed = 500
+    next = reduce(next, { type: 'cook', propertyId: lab.id, recipe: 'meth' })
+    const started = next.properties.find((p) => p.type === 'lab')!
+    expect(started.cooks).toHaveLength(1)
+    expect(started.stored.speed).toBe(0)
+    expect(next.heat).toBeGreaterThan(0)
+
+    const batches = Array.from({ length: 30 }, (_, index) => cookedLab(index + 1))
+    const successes = batches.filter(
+      (entry) => entry.properties[0]!.stored.meth >= 1,
+    )
+    const explosions = batches.filter((entry) =>
+      entry.log.some((line) => line.text.includes('blew up')),
+    )
+    expect(successes.length).toBeGreaterThan(0)
+    expect(explosions.length).toBeGreaterThan(0)
+    const win = successes[0]!
+    expect(win.stats.cooks).toBeGreaterThanOrEqual(1)
+    expect(win.stats.unitsCooked).toBeGreaterThanOrEqual(1)
+    expect(win.properties[0]!.cooks).toHaveLength(0)
+  })
+
+  it('lab tech auto-starts batches from stored ingredients', () => {
+    const state = createGame('normal', 92)
+    state.cash = 50000
+    let next = reduce(state, { type: 'buyProperty', propertyType: 'lab' })
+    const lab = next.properties.find((p) => p.type === 'lab')!
+    lab.stored.speed = 10
+    lab.storedBasis.speed = 1000
+    next = reduce(next, {
+      type: 'hireLabTech',
+      propertyId: lab.id,
+      recipe: 'meth',
+    })
+    expect(next.properties[0]!.labTech).toBe('meth')
+    const ran = advance(next, 1)
+    const tended = ran.properties[0]!
+    expect(tended.cooks).toHaveLength(2)
+    expect(tended.stored.speed).toBe(0)
+  })
+})
+
 describe('save', () => {
   it('round-trips a game state', () => {
     const state = stableGame(99)
@@ -1380,6 +1523,36 @@ describe('save', () => {
     expect(restored!.buyOrders).toEqual([])
     expect(restored!.stats.dealerSales).toBe(0)
     expect(restored!.assetMarkets.vltn.anchor).toBeGreaterThan(0)
+  })
+
+  it('migrates a version 6 save without runner, lab, or hops', () => {
+    const state = stableGame(12)
+    state.cash = 10000
+    const bought = reduce(state, {
+      type: 'buyProperty',
+      propertyType: 'lab',
+    })
+    const parsed = JSON.parse(serializeGame(bought)) as Record<string, unknown>
+    parsed.version = 6
+    parsed.car = 'coupe'
+    delete parsed.boroughHopsLeft
+    const property = (parsed.properties as Record<string, unknown>[])[0]!
+    delete property.runner
+    delete property.cooks
+    delete property.labTech
+    const stats = parsed.stats as Record<string, unknown>
+    delete stats.cooks
+    delete stats.unitsCooked
+
+    const restored = deserializeGame(JSON.stringify(parsed))
+    expect(restored).not.toBeNull()
+    expect(restored!.version).toBe(SAVE_VERSION)
+    expect(restored!.boroughHopsLeft).toBe(2)
+    expect(restored!.properties[0]!.runner).toBe(false)
+    expect(restored!.properties[0]!.cooks).toEqual([])
+    expect(restored!.properties[0]!.labTech).toBeNull()
+    expect(restored!.stats.cooks).toBe(0)
+    expect(restored!.stats.unitsCooked).toBe(0)
   })
 
   it('round-trips dealers, watchlist entries, and buy orders', () => {

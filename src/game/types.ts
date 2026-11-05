@@ -83,6 +83,7 @@ export const PROPERTY_TYPE_IDS = [
   'stash',
   'growhouse',
   'warehouse',
+  'lab',
 ] as const
 export type PropertyTypeId = (typeof PROPERTY_TYPE_IDS)[number]
 
@@ -162,6 +163,22 @@ export interface Car {
   timeFactor: number
   blurb: string
   capacity?: number
+  boroughHops: number
+}
+
+export type RecipeId = 'meth' | 'ketamine'
+
+export interface Recipe {
+  id: RecipeId
+  name: string
+  input: GoodId
+  inputQty: number
+  output: GoodId
+  outputQty: number
+  days: number
+  heat: number
+  risk: number
+  blurb: string
 }
 
 export interface Good {
@@ -206,6 +223,7 @@ export interface PropertyTypeConfig {
   costMultiplier: number
   storageMultiplier: number
   growSlots: number | null
+  cookSlots: number
   blurb: string
 }
 
@@ -216,6 +234,7 @@ export interface PropertyConfig {
   cost: number
   storage: number
   growSlots: number
+  cookSlots: number
   blurb: string
 }
 
@@ -225,6 +244,13 @@ export interface GrowPlot {
   readyDay: number
   yield: number
   seedCost: number
+}
+
+export interface CookPlot {
+  recipe: RecipeId
+  startedDay: number
+  readyDay: number
+  inputBasis: number
 }
 
 export interface CaretakerState {
@@ -245,6 +271,9 @@ export interface PropertyState {
   grows: GrowPlot[]
   caretaker: CaretakerState | null
   dealer: DealerState | null
+  runner: boolean
+  cooks: CookPlot[]
+  labTech: RecipeId | null
 }
 
 export interface WatchEntry {
@@ -327,6 +356,7 @@ export interface CharacterClass {
   growYieldMultiplier: number
   seedCostMultiplier: number
   brokerFeeMultiplier: number
+  cookBonus: number
   dumpsterMin: number
   startBank: number
   startGun: GunId | null
@@ -402,6 +432,8 @@ export interface Stats {
   dealerUnits: number
   dealerRevenue: number
   dealerFees: number
+  cooks: number
+  unitsCooked: number
   invested: number
   investmentEarnings: number
   assetTrades: number
@@ -468,6 +500,7 @@ export interface GameState {
   pendingEvent: PendingEvent | null
   watchlist: WatchEntry[]
   buyOrders: BuyOrder[]
+  boroughHopsLeft: number
   achievements: AchievementId[]
   stats: Stats
 }
@@ -501,6 +534,11 @@ export type GameAction =
   | { type: 'fireDealer'; propertyId: string }
   | { type: 'depositStashAll'; propertyId: string }
   | { type: 'withdrawStashAll'; propertyId: string }
+  | { type: 'hireRunner'; propertyId: string }
+  | { type: 'fireRunner'; propertyId: string }
+  | { type: 'cook'; propertyId: string; recipe: RecipeId }
+  | { type: 'hireLabTech'; propertyId: string; recipe: RecipeId }
+  | { type: 'fireLabTech'; propertyId: string }
   | {
       type: 'setWatch'
       good: GoodId

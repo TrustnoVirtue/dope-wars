@@ -11,6 +11,7 @@ import type {
   PawnItem,
   PropertyConfig,
   PropertyTypeConfig,
+  Recipe,
   SafeHouseConfig,
   Upgrade,
 } from './types'
@@ -538,6 +539,7 @@ export const CARS: readonly Car[] = [
     name: 'Beater Sedan',
     cost: 2500,
     timeFactor: 1.3,
+    boroughHops: 1,
     blurb: 'Cheap, ugly, and always starts. Mostly.',
   },
   {
@@ -546,6 +548,7 @@ export const CARS: readonly Car[] = [
     cost: 7500,
     timeFactor: 1,
     capacity: 10,
+    boroughHops: 2,
     blurb: 'Clean enough to pass a checkpoint without a story.',
   },
   {
@@ -554,6 +557,7 @@ export const CARS: readonly Car[] = [
     cost: 14000,
     timeFactor: 1.2,
     capacity: 120,
+    boroughHops: 1,
     blurb: 'Slow and roomy. Adds 120 carrying capacity.',
   },
   {
@@ -561,6 +565,7 @@ export const CARS: readonly Car[] = [
     name: 'Sports Car',
     cost: 32000,
     timeFactor: 0.55,
+    boroughHops: 3,
     blurb: 'Fast, loud, and gone before they look up.',
   },
 ]
@@ -793,6 +798,7 @@ export const PROPERTY_TYPES: readonly PropertyTypeConfig[] = [
     costMultiplier: 0.5,
     storageMultiplier: 0.6,
     growSlots: 1,
+    cookSlots: 0,
     blurb: 'Cheap, cramped, and better than the street.',
   },
   {
@@ -801,6 +807,7 @@ export const PROPERTY_TYPES: readonly PropertyTypeConfig[] = [
     costMultiplier: 1,
     storageMultiplier: 1,
     growSlots: null,
+    cookSlots: 0,
     blurb: 'The classic. Quiet storage with room to grow.',
   },
   {
@@ -809,6 +816,7 @@ export const PROPERTY_TYPES: readonly PropertyTypeConfig[] = [
     costMultiplier: 1.6,
     storageMultiplier: 0.85,
     growSlots: 4,
+    cookSlots: 0,
     blurb: 'More lights, more slots, more product.',
   },
   {
@@ -817,9 +825,53 @@ export const PROPERTY_TYPES: readonly PropertyTypeConfig[] = [
     costMultiplier: 2.5,
     storageMultiplier: 3,
     growSlots: 0,
+    cookSlots: 0,
     blurb: 'Serious square footage for serious weight.',
   },
+  {
+    id: 'lab',
+    name: 'Lab',
+    costMultiplier: 3,
+    storageMultiplier: 1.2,
+    growSlots: 0,
+    cookSlots: 2,
+    blurb: 'A quiet place to cook. Loud when it goes wrong.',
+  },
 ]
+
+export const RECIPES: readonly Recipe[] = [
+  {
+    id: 'meth',
+    name: 'Cook meth',
+    input: 'speed',
+    inputQty: 5,
+    output: 'meth',
+    outputQty: 1,
+    days: 3,
+    heat: 12,
+    risk: 0.15,
+    blurb: 'Five Speed becomes a batch of Meth. Volatile work.',
+  },
+  {
+    id: 'ketamine',
+    name: 'Cook ketamine',
+    input: 'benzos',
+    inputQty: 5,
+    output: 'ketamine',
+    outputQty: 1,
+    days: 3,
+    heat: 10,
+    risk: 0.12,
+    blurb: 'Five Benzos become a batch of Ketamine.',
+  },
+]
+
+export const RECIPE_BY_ID = Object.fromEntries(
+  RECIPES.map((recipe) => [recipe.id, recipe]),
+) as Record<Recipe['id'], Recipe>
+
+export const RUNNER_WAGE = 150
+export const LAB_TECH_WAGE = 200
 
 export const CHARACTER_CLASSES: readonly CharacterClass[] = [
   {
@@ -836,6 +888,7 @@ export const CHARACTER_CLASSES: readonly CharacterClass[] = [
     growYieldMultiplier: 1,
     seedCostMultiplier: 1,
     brokerFeeMultiplier: 1,
+    cookBonus: 0,
     dumpsterMin: 2,
     startBank: 0,
     startGun: null,
@@ -854,6 +907,7 @@ export const CHARACTER_CLASSES: readonly CharacterClass[] = [
     growYieldMultiplier: 1,
     seedCostMultiplier: 1,
     brokerFeeMultiplier: 1,
+    cookBonus: 0,
     dumpsterMin: 1,
     startBank: 0,
     startGun: 'switchblade',
@@ -872,6 +926,7 @@ export const CHARACTER_CLASSES: readonly CharacterClass[] = [
     growYieldMultiplier: 1,
     seedCostMultiplier: 1,
     brokerFeeMultiplier: 0.5,
+    cookBonus: 0,
     dumpsterMin: 1,
     startBank: 2000,
     startGun: null,
@@ -890,6 +945,7 @@ export const CHARACTER_CLASSES: readonly CharacterClass[] = [
     growYieldMultiplier: 1.25,
     seedCostMultiplier: 0.8,
     brokerFeeMultiplier: 1,
+    cookBonus: 1,
     dumpsterMin: 1,
     startBank: 0,
     startGun: null,
@@ -908,6 +964,7 @@ export const CHARACTER_CLASSES: readonly CharacterClass[] = [
     growYieldMultiplier: 1,
     seedCostMultiplier: 1,
     brokerFeeMultiplier: 1,
+    cookBonus: 0,
     dumpsterMin: 1,
     startBank: 0,
     startGun: null,
@@ -1259,6 +1316,7 @@ export function getPropertyConfig(
       Math.round((base.storage * config.storageMultiplier) / 10) * 10,
     ),
     growSlots: config.growSlots ?? base.growSlots,
+    cookSlots: config.cookSlots ?? 0,
     blurb: config.blurb,
   }
 }

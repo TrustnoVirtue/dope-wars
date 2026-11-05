@@ -1,18 +1,22 @@
 import {
   ASSETS,
+  CAR_BY_ID,
   GOOD_BY_ID,
   GOODS,
   GROWABLE_BY_GOOD,
   LOCATIONS,
   PAWN_ITEMS,
+  RECIPE_BY_ID,
 } from './data'
 import { SAVE_VERSION } from './engine'
 import { Rng } from './rng'
 import type {
   BuyOrder,
+  CookPlot,
   GameState,
   GoodId,
   PropertyState,
+  RecipeId,
   WatchEntry,
 } from './types'
 
@@ -94,6 +98,9 @@ function migrateProperties(parsed: Record<string, unknown>): PropertyState[] {
             : [],
           caretaker: normalizeCaretaker(property.caretaker),
           dealer: null,
+          runner: false,
+          cooks: [],
+          labTech: null,
         },
       ]
     })
@@ -117,6 +124,78 @@ function migrateProperties(parsed: Record<string, unknown>): PropertyState[] {
           : [],
         caretaker: null,
         dealer: null,
+        runner: false,
+        cooks: [],
+        labTech: null,
+      },
+    ]
+  })
+}
+
+function normalizeCooks(value: unknown): CookPlot[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((entry) => {
+    if (!entry || typeof entry !== 'object') return []
+    const record = entry as Record<string, unknown>
+    const recipe = record.recipe
+    if (typeof recipe !== 'string' || !RECIPE_BY_ID[recipe as RecipeId]) return []
+    const readyDay = record.readyDay
+    const startedDay = record.startedDay
+    const inputBasis = record.inputBasis
+    return [
+      {
+        recipe: recipe as RecipeId,
+        startedDay:
+          typeof startedDay === 'number' && Number.isFinite(startedDay)
+            ? Math.floor(startedDay)
+            : 0,
+        readyDay:
+          typeof readyDay === 'number' && Number.isFinite(readyDay)
+            ? Math.floor(readyDay)
+            : 0,
+        inputBasis:
+          typeof inputBasis === 'number' && Number.isFinite(inputBasis)
+            ? Math.max(0, inputBasis)
+            : 0,
+      },
+    ]
+  })
+}
+
+function normalizeLabTech(value: unknown): RecipeId | null {
+  if (typeof value !== 'string' || !RECIPE_BY_ID[value as RecipeId]) return null
+  return value as RecipeId
+}
+
+function normalizePropertiesV7(
+  parsed: Record<string, unknown>,
+): PropertyState[] {
+  const source = parsed.properties
+  if (!Array.isArray(source)) return []
+  return source.flatMap((entry) => {
+    if (!entry || typeof entry !== 'object') return []
+    const property = entry as Record<string, unknown>
+    const location = property.location
+    const type = property.type
+    if (typeof location !== 'string' || typeof type !== 'string') return []
+    return [
+      {
+        id:
+          typeof property.id === 'string'
+            ? property.id
+            : `${location}:${type}`,
+        location: location as PropertyState['location'],
+        type: type as PropertyState['type'],
+        stored: mergeGoods(property.stored),
+        storedBasis: mergeGoods(property.storedBasis),
+        grows: Array.isArray(property.grows)
+          ? (property.grows as PropertyState['grows'])
+          : [],
+        caretaker: normalizeCaretaker(property.caretaker),
+        dealer: normalizeDealer(property.dealer),
+        runner: property.runner === true,
+        cooks: normalizeCooks(property.cooks),
+        labTech: normalizeLabTech(property.labTech),
       },
     ]
   })
@@ -228,6 +307,9 @@ function normalizePropertiesV6(parsed: Record<string, unknown>): PropertyState[]
           : [],
         caretaker: normalizeCaretaker(property.caretaker),
         dealer: normalizeDealer(property.dealer),
+        runner: false,
+        cooks: [],
+        labTech: null,
       },
     ]
   })
@@ -440,7 +522,7 @@ function migrateV5(parsed: Record<string, unknown>): Record<string, unknown> {
 
   return {
     ...parsed,
-    version: SAVE_VERSION,
+    version: 6,
     properties: normalizePropertiesV6(parsed),
     assetMarkets: migrateAssets(parsed, new Rng(seed)),
     watchlist,
@@ -452,6 +534,39 @@ function migrateV5(parsed: Record<string, unknown>): Record<string, unknown> {
       dealerUnits: stats.dealerUnits ?? 0,
       dealerRevenue: stats.dealerRevenue ?? 0,
       dealerFees: stats.dealerFees ?? 0,
+    },
+  }
+}
+
+function migrateV6(parsed: Record<string, unknown>): Record<string, unknown> {
+  const stats =
+    parsed.stats && typeof parsed.stats === 'object'
+      ? (parsed.stats as Record<string, unknown>)
+      : {}
+  const car =
+    typeof parsed.car === 'string' && CAR_BY_ID[parsed.car as keyof typeof CAR_BY_ID]
+      ? (parsed.car as keyof typeof CAR_BY_ID)
+      : null
+  const carHops = car ? CAR_BY_ID[car].boroughHops : 0
+  const hops =
+    typeof parsed.boroughHopsLeft === 'number' &&
+    Number.isFinite(parsed.boroughHopsLeft)
+      ? Math.max(0, Math.min(carHops, Math.floor(parsed.boroughHopsLeft)))
+      : carHops
+
+  return {
+    ...parsed,
+    version: SAVE_VERSION,
+    properties: normalizePropertiesV7(parsed),
+    boroughHopsLeft: hops,
+    stats: {
+      ...stats,
+      dealerSales: stats.dealerSales ?? 0,
+      dealerUnits: stats.dealerUnits ?? 0,
+      dealerRevenue: stats.dealerRevenue ?? 0,
+      dealerFees: stats.dealerFees ?? 0,
+      cooks: stats.cooks ?? 0,
+      unitsCooked: stats.unitsCooked ?? 0,
     },
   }
 }
@@ -471,6 +586,7 @@ export function deserializeGame(raw: string | null): GameState | null {
     if (candidate.version === 3) candidate = migrateV3(candidate)
     if (candidate.version === 4) candidate = migrateV4(candidate)
     if (candidate.version === 5) candidate = migrateV5(candidate)
+    if (candidate.version === 6) candidate = migrateV6(candidate)
     if (candidate.version !== SAVE_VERSION) return null
 
     if (!candidate.markets || !candidate.inventory || !candidate.stats) return null

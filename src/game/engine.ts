@@ -15,6 +15,7 @@ import {
   GROWABLE_BY_GOOD,
   GUN_BY_ID,
   HEAT_DECAY,
+  LAB_TECH_WAGE,
   LOAN_CAP,
   LOAN_SHARK_EVENT_THRESHOLD,
   LOCATIONS,
@@ -25,6 +26,8 @@ import {
   PRICE_HISTORY_LIMIT,
   PRICE_TICK_REVERSION,
   PRICE_TICK_VOLATILITY,
+  RECIPE_BY_ID,
+  RUNNER_WAGE,
   START_DAY,
   UPGRADE_BY_ID,
   getPropertyConfig,
@@ -66,11 +69,12 @@ import type {
   PendingEvent,
   PropertyState,
   PropertyTypeId,
+  RecipeId,
   StartMode,
   UpgradeId,
 } from './types'
 
-export const SAVE_VERSION = 6
+export const SAVE_VERSION = 7
 
 const MAX_LOG = 140
 
@@ -205,6 +209,7 @@ export function createGame(
     pendingEvent: null,
     watchlist: [],
     buyOrders: [],
+    boroughHopsLeft: 0,
     achievements: [],
     stats: {
       trades: 0,
@@ -230,6 +235,8 @@ export function createGame(
       dealerUnits: 0,
       dealerRevenue: 0,
       dealerFees: 0,
+      cooks: 0,
+      unitsCooked: 0,
       invested: 0,
       investmentEarnings: 0,
       assetTrades: 0,
@@ -457,6 +464,9 @@ function advanceDays(
     }
 
     state.day += 1
+    state.boroughHopsLeft = state.car
+      ? CAR_BY_ID[state.car].boroughHops
+      : 0
     if (options.layLow && index === 0) {
       state.heat = Math.max(0, state.heat - 12)
     }
@@ -491,7 +501,10 @@ function advanceDays(
       addLog(state, 'neutral', `Day ${state.day} - on the road.`)
     }
 
+    runWorkerWages(state)
     runCaretakers(state, rng)
+    runLabs(state, rng)
+    runRunners(state)
     runDealers(state)
     runBuyOrders(state)
     checkWatchlist(state)
@@ -1199,12 +1212,13 @@ function applyBuyCar(state: GameState, carId: CarId): void {
 
   state.cash -= due
   state.car = carId
+  state.boroughHopsLeft = car.boroughHops
   addLog(
     state,
     'info',
     oldCar
-      ? `Traded the ${oldCar.name} plus ${money(due)} for a ${car.name}.`
-      : `Bought a ${car.name} for ${money(car.cost)}. The city just got smaller.`,
+      ? `Traded the ${oldCar.name} plus ${money(due)} for a ${car.name}. ${car.boroughHops} same-day hop${car.boroughHops === 1 ? '' : 's'} a day.`
+      : `Bought a ${car.name} for ${money(car.cost)}. The city just got smaller — ${car.boroughHops} same-day hop${car.boroughHops === 1 ? '' : 's'} a day.`,
   )
   sync(state)
 }
@@ -1222,6 +1236,9 @@ function newProperty(
     grows: [],
     caretaker: null,
     dealer: null,
+    runner: false,
+    cooks: [],
+    labTech: null,
   }
 }
 
@@ -1530,6 +1547,80 @@ function applyFireDealer(state: GameState, propertyId: string): void {
   sync(state)
 }
 
+function applyHireRunner(state: GameState, propertyId: string): void {
+  const property = propertyById(state, propertyId)
+  if (!property || property.location !== state.location || property.runner) return
+  const config = getPropertyConfig(property.location, property.type)
+  if (config.storage <= 0) return
+  property.runner = true
+  addLog(
+    state,
+    'info',
+    `Hired a runner for the ${config.name} — ${money(RUNNER_WAGE)} a day to haul goods in from your coat and other local spots.`,
+  )
+  sync(state)
+}
+
+function applyFireRunner(state: GameState, propertyId: string): void {
+  const property = propertyById(state, propertyId)
+  if (!property || property.location !== state.location || !property.runner) return
+  const config = getPropertyConfig(property.location, property.type)
+  property.runner = false
+  addLog(state, 'info', `Let the runner at the ${config.name} go.`)
+  sync(state)
+}
+
+function applyCook(
+  state: GameState,
+  propertyId: string,
+  recipeId: RecipeId,
+): void {
+  const property = propertyById(state, propertyId)
+  if (!property || property.location !== state.location) return
+  const config = getPropertyConfig(property.location, property.type)
+  if (config.cookSlots <= 0 || property.cooks.length >= config.cookSlots) return
+  const recipe = RECIPE_BY_ID[recipeId]
+  if (!recipe) return
+  if (property.stored[recipe.input] < recipe.inputQty) return
+  if (!beginCook(state, property, recipeId)) return
+  addLog(
+    state,
+    'info',
+    `Started a ${GOOD_BY_ID[recipe.output].name} batch in the ${config.name} — ready in ${recipe.days} days.`,
+  )
+  sync(state)
+}
+
+function applyHireLabTech(
+  state: GameState,
+  propertyId: string,
+  recipeId: RecipeId,
+): void {
+  const property = propertyById(state, propertyId)
+  if (!property || property.location !== state.location) return
+  const config = getPropertyConfig(property.location, property.type)
+  if (config.cookSlots <= 0) return
+  const recipe = RECIPE_BY_ID[recipeId]
+  if (!recipe) return
+  if (property.labTech === recipeId) return
+  property.labTech = recipeId
+  addLog(
+    state,
+    'info',
+    `Hired a lab tech for the ${config.name} — ${money(LAB_TECH_WAGE)} a day to cook ${GOOD_BY_ID[recipe.output].name} whenever ingredients are stocked.`,
+  )
+  sync(state)
+}
+
+function applyFireLabTech(state: GameState, propertyId: string): void {
+  const property = propertyById(state, propertyId)
+  if (!property || property.location !== state.location || !property.labTech) return
+  const config = getPropertyConfig(property.location, property.type)
+  property.labTech = null
+  addLog(state, 'info', `Let the lab tech at the ${config.name} go.`)
+  sync(state)
+}
+
 function applyDepositStashAll(state: GameState, propertyId: string): void {
   const property = propertyById(state, propertyId)
   if (!property || property.location !== state.location) return
@@ -1674,36 +1765,70 @@ function applyCancelBuyOrder(state: GameState, id: string): void {
   sync(state)
 }
 
-function runCaretakers(state: GameState, rng: Rng): void {
-  let wagesPaid = 0
+function payDailyWage(state: GameState, wage: number): boolean {
+  if (state.cash + state.bank < wage) return false
+  const fromCash = Math.min(state.cash, wage)
+  state.cash -= fromCash
+  state.bank -= wage - fromCash
+  state.stats.wagesPaid += wage
+  return true
+}
+
+function runWorkerWages(state: GameState): void {
+  let paid = 0
+
   for (const property of state.properties) {
-    if (!property.caretaker) continue
     const config = getPropertyConfig(property.location, property.type)
-    const wage = caretakerWage(property)
-    if (config.growSlots <= 0 || wage <= 0) {
-      property.caretaker = null
-      continue
+
+    if (property.caretaker) {
+      const wage = caretakerWage(property)
+      if (config.growSlots <= 0 || wage <= 0) {
+        property.caretaker = null
+      } else if (payDailyWage(state, wage)) {
+        paid += wage
+      } else {
+        property.caretaker = null
+        addLog(
+          state,
+          'bad',
+          `The caretaker at the ${config.name} quit after missing a ${money(wage)} wage payment.`,
+        )
+      }
     }
-    if (state.cash + state.bank < wage) {
-      property.caretaker = null
-      addLog(
-        state,
-        'bad',
-        `The caretaker at the ${config.name} quit after missing a ${money(wage)} wage payment.`,
-      )
-      continue
+
+    if (property.runner) {
+      if (payDailyWage(state, RUNNER_WAGE)) {
+        paid += RUNNER_WAGE
+      } else {
+        property.runner = false
+        addLog(
+          state,
+          'bad',
+          `The runner at the ${config.name} quit after missing a ${money(RUNNER_WAGE)} wage payment.`,
+        )
+      }
     }
-    const fromCash = Math.min(state.cash, wage)
-    state.cash -= fromCash
-    state.bank -= wage - fromCash
-    state.stats.wagesPaid += wage
-    wagesPaid += wage
+
+    if (property.labTech) {
+      if (payDailyWage(state, LAB_TECH_WAGE)) {
+        paid += LAB_TECH_WAGE
+      } else {
+        property.labTech = null
+        addLog(
+          state,
+          'bad',
+          `The lab tech at the ${config.name} quit after missing a ${money(LAB_TECH_WAGE)} wage payment.`,
+        )
+      }
+    }
   }
 
-  if (wagesPaid > 0) {
-    addLog(state, 'info', `Paid ${money(wagesPaid)} in caretaker wages.`)
+  if (paid > 0) {
+    addLog(state, 'info', `Paid ${money(paid)} in worker wages.`)
   }
+}
 
+function runCaretakers(state: GameState, rng: Rng): void {
   let harvests = 0
   let unitsHarvested = 0
   let planted = 0
@@ -1777,6 +1902,135 @@ function runCaretakers(state: GameState, rng: Rng): void {
       'info',
       `Caretakers left ${waiting} crop${waiting === 1 ? '' : 's'} waiting - storage is full.`,
     )
+  }
+}
+
+function beginCook(
+  state: GameState,
+  property: PropertyState,
+  recipeId: RecipeId,
+): boolean {
+  const recipe = RECIPE_BY_ID[recipeId]
+  if (!recipe) return false
+  const stored = property.stored[recipe.input]
+  if (stored < recipe.inputQty) return false
+  const basisMoved =
+    stored > 0 ? (property.storedBasis[recipe.input] * recipe.inputQty) / stored : 0
+  property.stored[recipe.input] -= recipe.inputQty
+  property.storedBasis[recipe.input] = Math.max(
+    0,
+    property.storedBasis[recipe.input] - basisMoved,
+  )
+  property.cooks.push({
+    recipe: recipe.id,
+    startedDay: state.day,
+    readyDay: state.day + recipe.days,
+    inputBasis: basisMoved,
+  })
+  addHeat(state, recipe.heat)
+  return true
+}
+
+function runLabs(state: GameState, rng: Rng): void {
+  const character = characterOf(state)
+
+  for (const property of state.properties) {
+    const config = getPropertyConfig(property.location, property.type)
+    if (config.cookSlots <= 0) {
+      if (property.cooks.length > 0) property.cooks = []
+      if (property.labTech) property.labTech = null
+      continue
+    }
+
+    for (let slot = property.cooks.length - 1; slot >= 0; slot -= 1) {
+      const cook = property.cooks[slot]
+      const recipe = RECIPE_BY_ID[cook.recipe]
+      if (!cook || !recipe || state.day < cook.readyDay) continue
+      property.cooks.splice(slot, 1)
+      if (rng.chance(recipe.risk)) {
+        addHeat(state, recipe.heat * 1.5)
+        addLog(
+          state,
+          'bad',
+          `A ${GOOD_BY_ID[recipe.output].name} batch blew up in the ${config.name}. The lab survives; the product does not.`,
+        )
+        continue
+      }
+      const outputQty = recipe.outputQty + (character?.cookBonus ?? 0)
+      property.stored[recipe.output] += outputQty
+      property.storedBasis[recipe.output] += cook.inputBasis
+      state.stats.cooks += 1
+      state.stats.unitsCooked += outputQty
+      addLog(
+        state,
+        'good',
+        `Cooked ${outputQty} ${GOOD_BY_ID[recipe.output].name} in the ${config.name}.`,
+      )
+    }
+
+    const tech = property.labTech
+    if (tech) {
+      let started = 0
+      while (property.cooks.length < config.cookSlots) {
+        if (!beginCook(state, property, tech)) break
+        started += 1
+      }
+      if (started > 0) {
+        addLog(
+          state,
+          'info',
+          `The lab tech at the ${config.name} started ${started} batch${started === 1 ? '' : 'es'} of ${GOOD_BY_ID[RECIPE_BY_ID[tech].output].name}.`,
+        )
+      }
+    }
+  }
+}
+
+function runRunners(state: GameState): void {
+  for (const property of state.properties) {
+    if (!property.runner) continue
+    if (property.location !== state.location) continue
+    const config = getPropertyConfig(property.location, property.type)
+    let moved = 0
+
+    for (const good of GOODS) {
+      const qty = Math.min(state.inventory[good.id], storageLeft(property))
+      if (qty <= 0) continue
+      const owned = state.inventory[good.id]
+      const basisMoved = owned > 0 ? (state.basis[good.id] * qty) / owned : 0
+      state.inventory[good.id] -= qty
+      state.basis[good.id] = Math.max(0, state.basis[good.id] - basisMoved)
+      property.stored[good.id] += qty
+      property.storedBasis[good.id] += basisMoved
+      moved += qty
+    }
+
+    for (const other of state.properties) {
+      if (other === property || other.location !== property.location) continue
+      for (const good of GOODS) {
+        const qty = Math.min(other.stored[good.id], storageLeft(property))
+        if (qty <= 0) continue
+        const stored = other.stored[good.id]
+        const basisMoved =
+          stored > 0 ? (other.storedBasis[good.id] * qty) / stored : 0
+        other.stored[good.id] -= qty
+        other.storedBasis[good.id] = Math.max(
+          0,
+          other.storedBasis[good.id] - basisMoved,
+        )
+        property.stored[good.id] += qty
+        property.storedBasis[good.id] += basisMoved
+        moved += qty
+      }
+    }
+
+    if (moved > 0) {
+      addLog(
+        state,
+        'info',
+        `Your runner moved ${moved} unit${moved === 1 ? '' : 's'} into the ${config.name}.`,
+      )
+    }
   }
 }
 
@@ -2004,9 +2258,23 @@ export function reduce(state: GameState, action: GameAction): GameState {
         )
       case 'fireCaretaker':
       case 'fireDealer':
+      case 'fireRunner':
+      case 'fireLabTech':
       case 'depositStashAll':
       case 'withdrawStashAll':
         return typeof action.propertyId === 'string'
+      case 'hireRunner':
+        return typeof action.propertyId === 'string'
+      case 'cook':
+        return (
+          typeof action.propertyId === 'string' &&
+          Boolean(RECIPE_BY_ID[action.recipe])
+        )
+      case 'hireLabTech':
+        return (
+          typeof action.propertyId === 'string' &&
+          Boolean(RECIPE_BY_ID[action.recipe])
+        )
       case 'hireDealer':
         return (
           typeof action.propertyId === 'string' &&
@@ -2132,6 +2400,21 @@ export function reduce(state: GameState, action: GameAction): GameState {
     case 'fireDealer':
       applyFireDealer(next, action.propertyId)
       break
+    case 'hireRunner':
+      applyHireRunner(next, action.propertyId)
+      break
+    case 'fireRunner':
+      applyFireRunner(next, action.propertyId)
+      break
+    case 'cook':
+      applyCook(next, action.propertyId, action.recipe)
+      break
+    case 'hireLabTech':
+      applyHireLabTech(next, action.propertyId, action.recipe)
+      break
+    case 'fireLabTech':
+      applyFireLabTech(next, action.propertyId)
+      break
     case 'depositStashAll':
       applyDepositStashAll(next, action.propertyId)
       break
@@ -2168,6 +2451,16 @@ export function reduce(state: GameState, action: GameAction): GameState {
       const origin = LOCATION_BY_ID[next.location]
       if (!target || !origin) return state
       if (target.kind === 'city' || origin.kind === 'city') return state
+      if (next.car && next.boroughHopsLeft > 0) {
+        next.boroughHopsLeft -= 1
+        next.location = action.location
+        addLog(
+          next,
+          'info',
+          `You cut across town to ${target.name} — no day lost.`,
+        )
+        break
+      }
       addLog(next, 'info', `You leave ${origin.name} for ${target.name}.`)
       advanceDays(next, rng, 1, { relocate: action.location })
       break

@@ -21,6 +21,8 @@ import { Badge, Button, CardHeader } from './ui'
 
 export function WorkersPanel({
   game,
+  section,
+  onSectionChange,
   onHire,
   onFire,
   onHireDealer,
@@ -28,13 +30,14 @@ export function WorkersPanel({
   onFireDealer,
 }: {
   game: GameState
+  section: 'caretakers' | 'dealers'
+  onSectionChange: (section: 'caretakers' | 'dealers') => void
   onHire: (propertyId: string, good: GoodId) => void
   onFire: (propertyId: string) => void
   onHireDealer: (propertyId: string, good: GoodId, minPrice: number) => void
   onSetDealerPrice: (propertyId: string, minPrice: number) => void
   onFireDealer: (propertyId: string) => void
 }) {
-  const [section, setSection] = useState<'caretakers' | 'dealers'>('caretakers')
   const disabled = game.status !== 'playing' || Boolean(game.pendingEvent)
   const growProperties = game.properties.filter(
     (property) => propertyConfig(property).growSlots > 0,
@@ -50,13 +53,13 @@ export function WorkersPanel({
       <div className="grid grid-cols-2 gap-1.5">
         <SegmentButton
           active={section === 'caretakers'}
-          onClick={() => setSection('caretakers')}
+          onClick={() => onSectionChange('caretakers')}
         >
           Caretakers
         </SegmentButton>
         <SegmentButton
           active={section === 'dealers'}
-          onClick={() => setSection('dealers')}
+          onClick={() => onSectionChange('dealers')}
         >
           Dealers
         </SegmentButton>

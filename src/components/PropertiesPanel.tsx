@@ -4,8 +4,12 @@ import {
   GOOD_BY_ID,
   GOODS,
   GROWABLES,
+  LAB_TECH_WAGE,
   LOCATION_BY_ID,
   PROPERTY_TYPES,
+  RECIPES,
+  RECIPE_BY_ID,
+  RUNNER_WAGE,
   getPropertyConfig,
 } from '../game/data'
 import {
@@ -26,7 +30,10 @@ import type {
   PropertyConfig,
   PropertyState,
   PropertyTypeId,
+  RecipeId,
 } from '../game/types'
+
+type PropertyTab = 'stash' | 'grow' | 'lab'
 import { cn } from '../lib/cn'
 import { money, quantity } from '../lib/format'
 import { HomeIcon, SproutIcon } from './icons'
@@ -43,6 +50,13 @@ export function PropertiesPanel({
   onFire,
   onDepositAll,
   onWithdrawAll,
+  onHireRunner,
+  onFireRunner,
+  onCook,
+  onHireLabTech,
+  onFireLabTech,
+  tabs,
+  onTabChange,
 }: {
   game: GameState
   onBuy: (type: PropertyTypeId) => void
@@ -54,6 +68,13 @@ export function PropertiesPanel({
   onFire: (propertyId: string) => void
   onDepositAll: (propertyId: string) => void
   onWithdrawAll: (propertyId: string) => void
+  onHireRunner: (propertyId: string) => void
+  onFireRunner: (propertyId: string) => void
+  onCook: (propertyId: string, recipe: RecipeId) => void
+  onHireLabTech: (propertyId: string, recipe: RecipeId) => void
+  onFireLabTech: (propertyId: string) => void
+  tabs: Record<string, PropertyTab>
+  onTabChange: (propertyId: string, tab: PropertyTab) => void
 }) {
   const local = propertiesAt(game)
   const disabled = game.status !== 'playing' || Boolean(game.pendingEvent)
@@ -68,9 +89,15 @@ export function PropertiesPanel({
       sum + property.grows.filter((plot) => growPlotReady(plot, game.day)).length,
     0,
   )
-  const staffed = local.filter((property) => property.caretaker)
-  const wages = staffed.reduce(
-    (sum, property) => sum + caretakerWage(property),
+  const staffed = local.filter(
+    (property) => property.caretaker || property.runner || property.labTech,
+  )
+  const wages = local.reduce(
+    (sum, property) =>
+      sum +
+      caretakerWage(property) +
+      (property.runner ? RUNNER_WAGE : 0) +
+      (property.labTech ? LAB_TECH_WAGE : 0),
     0,
   )
 
@@ -80,11 +107,13 @@ export function PropertiesPanel({
         <CardHeader
           icon={<HomeIcon size={16} />}
           title="Properties"
-          subtitle={`${location.name} — ${local.length} of 4 types owned`}
+          subtitle={`${location.name} — ${local.length} of ${PROPERTY_TYPES.length} types owned`}
           action={
             local.length > 0 ? (
               <Badge tone={ready > 0 ? 'good' : 'neutral'}>
-                {ready > 0 ? `${ready} ready` : `${local.length} / 4`}
+                {ready > 0
+                  ? `${ready} ready`
+                  : `${local.length} / ${PROPERTY_TYPES.length}`}
               </Badge>
             ) : (
               <Badge tone="neutral">None here</Badge>
@@ -110,7 +139,7 @@ export function PropertiesPanel({
                   value={
                     staffed.length > 0
                       ? `${money(wages)} / day`
-                      : 'No caretakers'
+                      : 'No workers'
                   }
                 />
               </div>
@@ -130,6 +159,13 @@ export function PropertiesPanel({
                     onFire={onFire}
                     onDepositAll={onDepositAll}
                     onWithdrawAll={onWithdrawAll}
+                    onHireRunner={onHireRunner}
+                    onFireRunner={onFireRunner}
+                    onCook={onCook}
+                    onHireLabTech={onHireLabTech}
+                    onFireLabTech={onFireLabTech}
+                    tab={tabs[property.id] ?? 'stash'}
+                    onTabChange={onTabChange}
                   />
                 ))}
               </div>
@@ -144,7 +180,7 @@ export function PropertiesPanel({
           title={`Buy in ${location.name}`}
           subtitle="One of each type per location. Property purchases are sunk costs."
         />
-        <div className="grid gap-2 p-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-2 p-4 sm:grid-cols-2 lg:grid-cols-5">
           {PROPERTY_TYPES.map((type) => {
             const config = getPropertyConfig(game.location, type.id)
             const owned = hasPropertyType(game, game.location, type.id)
@@ -216,6 +252,13 @@ function PropertyPanel({
   onFire,
   onDepositAll,
   onWithdrawAll,
+  onHireRunner,
+  onFireRunner,
+  onCook,
+  onHireLabTech,
+  onFireLabTech,
+  tab,
+  onTabChange,
 }: {
   property: PropertyState
   game: GameState
@@ -228,14 +271,26 @@ function PropertyPanel({
   onFire: (propertyId: string) => void
   onDepositAll: (propertyId: string) => void
   onWithdrawAll: (propertyId: string) => void
+  onHireRunner: (propertyId: string) => void
+  onFireRunner: (propertyId: string) => void
+  onCook: (propertyId: string, recipe: RecipeId) => void
+  onHireLabTech: (propertyId: string, recipe: RecipeId) => void
+  onFireLabTech: (propertyId: string) => void
+  tab: PropertyTab
+  onTabChange: (propertyId: string, tab: PropertyTab) => void
 }) {
-  const [tab, setTab] = useState<'stash' | 'grow'>('stash')
   const [crop, setCrop] = useState<GoodId>(property.caretaker?.crop ?? 'weed')
   const config = propertyConfig(property)
   const readySlots = property.grows
     .map((plot, index) => (growPlotReady(plot, game.day) ? index : -1))
     .filter((index) => index >= 0)
   const canGrow = config.growSlots > 0
+  const canCook = config.cookSlots > 0
+  const readyCooks = property.cooks.filter(
+    (cook) => game.day >= cook.readyDay,
+  ).length
+  const activeTab: PropertyTab =
+    (tab === 'grow' && !canGrow) || (tab === 'lab' && !canCook) ? 'stash' : tab
 
   return (
     <section className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-3">
@@ -247,9 +302,14 @@ function PropertyPanel({
             {canGrow
               ? ` · Grow ${property.grows.length} / ${config.growSlots}`
               : ''}
+            {canCook
+              ? ` · Cook ${property.cooks.length} / ${config.cookSlots}`
+              : ''}
           </p>
         </div>
         <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+          {property.runner ? <Badge tone="neutral">Runner</Badge> : null}
+          {property.labTech ? <Badge tone="neutral">Lab tech</Badge> : null}
           {property.dealer ? (
             <Badge tone="neutral">
               Dealer · {GOOD_BY_ID[property.dealer.good].name} @{' '}
@@ -259,22 +319,52 @@ function PropertyPanel({
           {readySlots.length > 0 ? (
             <Badge tone="good">{readySlots.length} ready</Badge>
           ) : null}
+          {readyCooks > 0 ? (
+            <Badge tone="good">{readyCooks} cooking</Badge>
+          ) : null}
         </div>
       </div>
 
-      {canGrow ? (
-        <div className="mt-2 grid grid-cols-2 gap-1.5">
-          <TabButton active={tab === 'stash'} onClick={() => setTab('stash')}>
+      {canGrow || canCook ? (
+        <div className="mt-2 flex gap-1.5">
+          <TabButton
+            active={activeTab === 'stash'}
+            className="flex-1"
+            onClick={() => onTabChange(property.id, 'stash')}
+          >
             Stash
           </TabButton>
-          <TabButton active={tab === 'grow'} onClick={() => setTab('grow')}>
-            Grow
-          </TabButton>
+          {canGrow ? (
+            <TabButton
+              active={activeTab === 'grow'}
+              className="flex-1"
+              onClick={() => onTabChange(property.id, 'grow')}
+            >
+              Grow
+            </TabButton>
+          ) : null}
+          {canCook ? (
+            <TabButton
+              active={activeTab === 'lab'}
+              className="flex-1"
+              onClick={() => onTabChange(property.id, 'lab')}
+            >
+              Lab
+            </TabButton>
+          ) : null}
         </div>
       ) : null}
 
-      {tab === 'stash' ? (
+      {activeTab === 'stash' ? (
         <>
+          {config.type === 'warehouse' ? (
+            <RunnerPanel
+              property={property}
+              disabled={disabled}
+              onHire={onHireRunner}
+              onFire={onFireRunner}
+            />
+          ) : null}
           <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
             <p className="text-[10px] text-[var(--muted)]">
               Move product between your coat and this stash.
@@ -324,7 +414,7 @@ function PropertyPanel({
           ))}
           </div>
         </>
-      ) : (
+      ) : activeTab === 'grow' ? (
         <div className="mt-2 space-y-1.5">
           <CaretakerPanel
             property={property}
@@ -370,8 +460,275 @@ function PropertyPanel({
             Seeds cost cash up front. Harvested crops land in this stash.
           </p>
         </div>
+      ) : (
+        <LabSection
+          property={property}
+          game={game}
+          disabled={disabled}
+          onCook={onCook}
+          onHireLabTech={onHireLabTech}
+          onFireLabTech={onFireLabTech}
+        />
       )}
     </section>
+  )
+}
+
+function RunnerPanel({
+  property,
+  disabled,
+  onHire,
+  onFire,
+}: {
+  property: PropertyState
+  disabled: boolean
+  onHire: (propertyId: string) => void
+  onFire: (propertyId: string) => void
+}) {
+  const hired = property.runner
+  return (
+    <div className="mt-2 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2.5">
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <p className="eyebrow">Automation</p>
+          <p className="mt-0.5 text-xs font-semibold">Warehouse runner</p>
+        </div>
+        <Badge tone={hired ? 'good' : 'neutral'}>
+          {hired ? `${money(RUNNER_WAGE)} / day` : 'Not hired'}
+        </Badge>
+      </div>
+      <p className="mt-1.5 text-[10px] leading-relaxed text-[var(--muted)]">
+        Every day you spend in this borough, the runner hauls your carried goods
+        and every other stash here into this warehouse, up to its free space.
+        Wages are paid daily from cash, then bank; miss a payment and they quit.
+      </p>
+      <div className="mt-2 flex items-center justify-end gap-1.5">
+        {hired ? (
+          <Button
+            size="xs"
+            variant="secondary"
+            disabled={disabled}
+            onClick={() => onFire(property.id)}
+          >
+            Let go
+          </Button>
+        ) : (
+          <Button
+            size="xs"
+            variant="primary"
+            disabled={disabled}
+            onClick={() => onHire(property.id)}
+          >
+            Hire runner · {money(RUNNER_WAGE)} / day
+          </Button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function LabSection({
+  property,
+  game,
+  disabled,
+  onCook,
+  onHireLabTech,
+  onFireLabTech,
+}: {
+  property: PropertyState
+  game: GameState
+  disabled: boolean
+  onCook: (propertyId: string, recipe: RecipeId) => void
+  onHireLabTech: (propertyId: string, recipe: RecipeId) => void
+  onFireLabTech: (propertyId: string) => void
+}) {
+  const config = propertyConfig(property)
+  const local = property.location === game.location
+  const canAct = !disabled && local
+
+  return (
+    <div className="mt-2 space-y-1.5">
+      <LabTechPanel
+        property={property}
+        disabled={disabled}
+        onHire={onHireLabTech}
+        onFire={onFireLabTech}
+      />
+
+      {Array.from({ length: config.cookSlots }, (_, slot) => {
+        const cook = property.cooks[slot]
+        if (cook) {
+          const recipe = RECIPE_BY_ID[cook.recipe]
+          const ready = game.day >= cook.readyDay
+          return (
+            <div
+              key={slot}
+              className={cn(
+                'rounded-xl border px-3 py-2',
+                ready
+                  ? 'border-[var(--good)] bg-[var(--good-soft)]'
+                  : 'border-[var(--border)] bg-[var(--surface-2)]',
+              )}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <p className="text-xs font-semibold">
+                    {GOOD_BY_ID[recipe.output].name}
+                  </p>
+                  <p className="mt-0.5 text-[10px] text-[var(--muted)]">
+                    {ready
+                      ? 'Ready — collects at the start of the next day'
+                      : `Ready in ${cook.readyDay - game.day} day${cook.readyDay - game.day === 1 ? '' : 's'}`}
+                  </p>
+                </div>
+                {ready ? (
+                  <Badge tone="good">Ready</Badge>
+                ) : (
+                  <Badge tone="neutral">Cooking</Badge>
+                )}
+              </div>
+            </div>
+          )
+        }
+
+        return (
+          <div
+            key={slot}
+            className="rounded-xl border border-dashed border-[var(--border-strong)] bg-[var(--surface)] px-3 py-2"
+          >
+            <p className="text-[9px] font-semibold uppercase tracking-[0.12em] text-[var(--dim)]">
+              Empty cook slot
+            </p>
+            <div className="mt-1.5 space-y-1.5">
+              {RECIPES.map((recipe) => {
+                const storedInput = property.stored[recipe.input]
+                const enough = storedInput >= recipe.inputQty
+                return (
+                  <div
+                    key={recipe.id}
+                    className="flex items-center justify-between gap-2"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-[11px] font-semibold">
+                        {recipe.name}
+                      </p>
+                      <p className="truncate text-[9px] text-[var(--muted)]">
+                        {recipe.inputQty} {GOOD_BY_ID[recipe.input].name} stored{' '}
+                        {quantity(storedInput)} · {recipe.days} days ·{' '}
+                        {Math.round(recipe.risk * 100)}% risk · +{recipe.heat}{' '}
+                        heat
+                      </p>
+                    </div>
+                    <Button
+                      size="xs"
+                      variant="secondary"
+                      disabled={!canAct || !enough}
+                      onClick={() => onCook(property.id, recipe.id)}
+                    >
+                      Cook
+                    </Button>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )
+      })}
+      <p className="pt-1 text-[10px] text-[var(--dim)]">
+        Batches resolve at the start of each day. An explosion loses the batch
+        and spikes heat.
+      </p>
+    </div>
+  )
+}
+
+function LabTechPanel({
+  property,
+  disabled,
+  onHire,
+  onFire,
+}: {
+  property: PropertyState
+  disabled: boolean
+  onHire: (propertyId: string, recipe: RecipeId) => void
+  onFire: (propertyId: string) => void
+}) {
+  const [recipe, setRecipe] = useState<RecipeId>(
+    property.labTech ?? RECIPES[0]!.id,
+  )
+  const hired = property.labTech
+  const unchanged = hired === recipe
+
+  return (
+    <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2.5">
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <p className="eyebrow">Automation</p>
+          <p className="mt-0.5 text-xs font-semibold">Lab tech</p>
+        </div>
+        <Badge tone={hired ? 'good' : 'neutral'}>
+          {hired ? `${money(LAB_TECH_WAGE)} / day` : 'Not hired'}
+        </Badge>
+      </div>
+      <p className="mt-1.5 text-[10px] leading-relaxed text-[var(--muted)]">
+        Starts the chosen batch whenever ingredients sit in this lab&apos;s stash
+        and a cook slot is free. Wages are paid daily from cash, then bank; miss
+        a payment and they quit.
+      </p>
+      <div className="mt-2 grid grid-cols-2 gap-1.5">
+        {RECIPES.map((entry) => {
+          const selected = recipe === entry.id
+          return (
+            <button
+              key={entry.id}
+              type="button"
+              aria-pressed={selected}
+              disabled={disabled}
+              className={cn(
+                'focus-ring rounded-lg border px-2.5 py-2 text-left transition-colors disabled:opacity-40',
+                selected
+                  ? 'border-[var(--accent)] bg-[var(--accent-soft)]'
+                  : 'border-[var(--border)] bg-[var(--surface)] hover:border-[var(--border-strong)]',
+              )}
+              onClick={() => setRecipe(entry.id)}
+            >
+              <p
+                className={cn(
+                  'text-[11px] font-semibold',
+                  selected && 'text-[var(--accent)]',
+                )}
+              >
+                {GOOD_BY_ID[entry.output].name}
+              </p>
+              <p className="mt-0.5 text-[9px] text-[var(--muted)]">
+                {entry.inputQty} {GOOD_BY_ID[entry.input].name} · {entry.days}{' '}
+                days
+              </p>
+            </button>
+          )
+        })}
+      </div>
+      <div className="mt-2 flex items-center justify-end gap-1.5">
+        {hired ? (
+          <Button
+            size="xs"
+            variant="secondary"
+            disabled={disabled}
+            onClick={() => onFire(property.id)}
+          >
+            Let go
+          </Button>
+        ) : null}
+        <Button
+          size="xs"
+          variant="primary"
+          disabled={disabled || unchanged}
+          onClick={() => onHire(property.id, recipe)}
+        >
+          {hired ? 'Set recipe' : `Hire · ${money(LAB_TECH_WAGE)} / day`}
+        </Button>
+      </div>
+    </div>
   )
 }
 
@@ -479,10 +836,12 @@ function CaretakerPanel({
 function TabButton({
   active,
   children,
+  className,
   onClick,
 }: {
   active: boolean
   children: string
+  className?: string
   onClick: () => void
 }) {
   return (
@@ -494,6 +853,7 @@ function TabButton({
         active
           ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]'
           : 'border-[var(--border)] bg-[var(--surface-2)] text-[var(--muted)] hover:border-[var(--border-strong)]',
+        className,
       )}
     >
       {children}

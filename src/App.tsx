@@ -71,10 +71,42 @@ type Theme = 'dark' | 'light'
 type Screen = 'title' | 'play'
 
 const THEME_KEY = 'dope-wars:theme'
+const UI_KEY = 'dope-wars:ui'
 const SAVE_INTERVAL_MS = 2000
+
+type PropertyPanelTab = 'stash' | 'grow' | 'lab'
+type WorkersSection = 'caretakers' | 'dealers'
 
 function boot() {
   return loadGame()
+}
+
+function readUiPrefs(): {
+  propertyTabs: Record<string, PropertyPanelTab>
+  workersSection: WorkersSection
+} {
+  try {
+    const raw = localStorage.getItem(UI_KEY)
+    if (!raw) return { propertyTabs: {}, workersSection: 'caretakers' }
+    const parsed = JSON.parse(raw) as {
+      propertyTabs?: unknown
+      workersSection?: unknown
+    }
+    const propertyTabs: Record<string, PropertyPanelTab> = {}
+    if (parsed.propertyTabs && typeof parsed.propertyTabs === 'object') {
+      for (const [key, value] of Object.entries(parsed.propertyTabs)) {
+        if (value === 'stash' || value === 'grow' || value === 'lab') {
+          propertyTabs[key] = value
+        }
+      }
+    }
+    return {
+      propertyTabs,
+      workersSection: parsed.workersSection === 'dealers' ? 'dealers' : 'caretakers',
+    }
+  } catch {
+    return { propertyTabs: {}, workersSection: 'caretakers' }
+  }
 }
 
 function initialQuantities(): Record<GoodId, number> {
@@ -103,6 +135,23 @@ export default function App() {
   const [achievementsOpen, setAchievementsOpen] = useState(false)
   const [quantities, setQuantities] =
     useState<Record<GoodId, number>>(initialQuantities)
+  const [propertyTabs, setPropertyTabs] = useState<Record<string, PropertyPanelTab>>(
+    () => readUiPrefs().propertyTabs,
+  )
+  const [workersSection, setWorkersSection] = useState<WorkersSection>(
+    () => readUiPrefs().workersSection,
+  )
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        UI_KEY,
+        JSON.stringify({ propertyTabs, workersSection }),
+      )
+    } catch {
+      // UI preferences are optional.
+    }
+  }, [propertyTabs, workersSection])
 
   const immediateSave = useRef(true)
 
@@ -629,6 +678,28 @@ export default function App() {
                 onWithdrawAll={(propertyId) =>
                   act({ type: 'withdrawStashAll', propertyId })
                 }
+                onHireRunner={(propertyId) =>
+                  act({ type: 'hireRunner', propertyId })
+                }
+                onFireRunner={(propertyId) =>
+                  act({ type: 'fireRunner', propertyId })
+                }
+                onCook={(propertyId, recipe) =>
+                  act({ type: 'cook', propertyId, recipe })
+                }
+                onHireLabTech={(propertyId, recipe) =>
+                  act({ type: 'hireLabTech', propertyId, recipe })
+                }
+                onFireLabTech={(propertyId) =>
+                  act({ type: 'fireLabTech', propertyId })
+                }
+                tabs={propertyTabs}
+                onTabChange={(propertyId, propertyTab) =>
+                  setPropertyTabs((current) => ({
+                    ...current,
+                    [propertyId]: propertyTab,
+                  }))
+                }
               />
             </TabScroll>
           ) : null}
@@ -637,6 +708,8 @@ export default function App() {
             <TabScroll>
               <WorkersPanel
                 game={game}
+                section={workersSection}
+                onSectionChange={setWorkersSection}
                 onHire={(propertyId, good) =>
                   act({ type: 'hireCaretaker', propertyId, good })
                 }

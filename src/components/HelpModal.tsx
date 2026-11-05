@@ -1,5 +1,9 @@
 import type { ReactNode } from 'react'
-import { DEALER_COMMISSION, DEALER_HIRE_COST } from '../game/data'
+import {
+  DEALER_COMMISSION,
+  DEALER_HIRE_COST,
+  RUNNER_WAGE,
+} from '../game/data'
 import { money } from '../lib/format'
 import { CloseIcon, HelpIcon } from './icons'
 import { Button, Modal } from './ui'
@@ -78,6 +82,21 @@ export function HelpModal({ onClose }: { onClose: () => void }) {
             Hire or retarget while standing at the property; they keep working
             while you travel.
           </Section>
+          <Section title="Warehouse runner">
+            Hire a runner for any warehouse from its card in the Properties tab.
+            Each day you spend in that borough, the runner hauls your carried
+            goods and every other local stash into the warehouse, up to its free
+            space, for {money(RUNNER_WAGE)} a day.
+          </Section>
+          <Section title="Labs">
+            Labs have two cook slots. Stock the lab&apos;s stash with
+            ingredients (5 Speed per Meth batch, 5 Benzos per Ketamine batch),
+            then start a cook — it takes three days and adds heat. At the start
+            of the day a finished batch either lands in the stash or blows up,
+            losing everything and spiking heat. Hire a lab tech to start the
+            chosen batch automatically whenever ingredients and a slot are
+            free.
+          </Section>
           <Section title="Saving">
             The run autosaves in this browser. Menu → Save backup copies the
             whole run as text — paste it back and hit Import to restore it
@@ -97,7 +116,9 @@ export function HelpModal({ onClose }: { onClose: () => void }) {
             cars burn more days on the road, and a faster car can turn a long
             haul into a quick run. Trade in your old ride for half its sticker
             price. Capacity is additive: the cargo van adds 120 units, and
-            storage upgrades stack on top.
+            storage upgrades stack on top. Every car also grants same-day
+            borough hops each day (Beater 1, Coupé 2, Cargo Van 1, Sports Car
+            3) - the first hops across the boroughs cost no day at all.
           </Section>
           <Section title="Endless mode">
             Endless runs have no final day. The markets keep moving, the shark
@@ -129,11 +150,12 @@ export function HelpModal({ onClose }: { onClose: () => void }) {
             you sell it.
           </Section>
           <Section title="Properties">
-            Each location offers four property types: Crash Pad, Stash House,
-            Grow House, and Warehouse. You can own one of each per location.
-            Stashed product is safe from muggings and raids and counts toward
-            net worth, but you can only move product in or out while standing
-            in that location. Properties are sunk costs, not resale assets.
+            Each location offers five property types: Crash Pad, Stash House,
+            Grow House, Warehouse, and Lab. You can own one of each per
+            location. Stashed product is safe from muggings and raids and counts
+            toward net worth, but you can only move product in or out while
+            standing in that location. Properties are sunk costs, not resale
+            assets.
           </Section>
           <Section title="Growing">
             Grow Houses and other properties with grow slots can plant weed,
