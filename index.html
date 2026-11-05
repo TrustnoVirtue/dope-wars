@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#070b0d" />
+    <meta
+      name="description"
+      content="Dope Wars — a modern take on the classic New York street-trading game."
+    />
+    <title>Dope Wars — NYC Trading Game</title>
+    <script>
+      try {
+        if (localStorage.getItem('dope-wars:theme') === 'light') {
+          document.documentElement.classList.add('light')
+        }
+      } catch (error) {
+        // Preferences are optional.
+      }
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
